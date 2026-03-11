@@ -1,0 +1,38 @@
+name: Deploy UI to GitHub Pages
+
+on:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  pages: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Replace API placeholder
+        run: |
+          # If BACKEND_URL is set as a secret, inject it into the UI files; otherwise default to localhost
+          if [ -n "${{ secrets.BACKEND_URL }}" ]; then
+            echo "Injecting BACKEND_URL into UI..."
+            sed -i "s|%API_URL%|${{ secrets.BACKEND_URL }}|g" ui/index.html ui/app.js || true
+          else
+            echo "No BACKEND_URL secret found — leaving default localhost URL"
+            sed -i "s|%API_URL%|http://127.0.0.1:8000|g" ui/index.html ui/app.js || true
+          fi
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v3
+
+      - name: Upload artifact for GitHub Pages
+        uses: actions/upload-pages-artifact@v1
+        with:
+          path: ui
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v1

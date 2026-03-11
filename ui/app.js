@@ -294,7 +294,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- 6. API Integration ---
-    const API_URL = 'http://127.0.0.1:8000';
+    const defaultApiUrl = 'http://127.0.0.1:8000';
+    const metaApi = document.querySelector('meta[name="api-url"]');
+    const API_URL = (metaApi && metaApi.content && metaApi.content !== '%API_URL%') ? metaApi.content : defaultApiUrl;
     let currentExtractedText = ""; // Store for Voice Agent context later
 
     const btnExtractText = document.getElementById('btn-extract-text');
