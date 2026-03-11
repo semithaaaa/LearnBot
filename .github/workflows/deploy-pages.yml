@@ -17,14 +17,32 @@ jobs:
 
       - name: Replace API placeholder
         run: |
-          # If BACKEND_URL is set as a secret, inject it into the UI files; otherwise default to localhost
+          # If BACKEND_URL is set as a secret, inject it into the UI files
           if [ -n "${{ secrets.BACKEND_URL }}" ]; then
             echo "Injecting BACKEND_URL into UI..."
             sed -i "s|%API_URL%|${{ secrets.BACKEND_URL }}|g" ui/index.html ui/app.js || true
-          else
-            echo "No BACKEND_URL secret found — leaving default localhost URL"
-            sed -i "s|%API_URL%|http://127.0.0.1:8000|g" ui/index.html ui/app.js || true
+            exit 0
           fi
+
+          # If Render secrets are provided, attempt to fetch the service domain and inject it
+          if [ -n "${{ secrets.RENDER_API_KEY }}" ] && [ -n "${{ secrets.RENDER_SERVICE_ID }}" ]; then
+            echo "Attempting to fetch Render service domain..."
+            sudo apt-get update && sudo apt-get install -y jq
+            service_json=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}")
+            domain=$(echo "$service_json" | jq -r '.defaultDomain // .serviceDetails.defaultDomain // .service.defaultDomain // .domain // empty')
+            if [ -n "$domain" ] && [ "$domain" != "null" ]; then
+              echo "Found Render domain: $domain"
+              sed -i "s|%API_URL%|https://$domain|g" ui/index.html ui/app.js || true
+              exit 0
+            else
+              echo "Could not extract domain from Render service response. Falling back to localhost."
+              echo "$service_json" | jq .
+            fi
+          fi
+
+          # Default fallback: localhost
+          echo "Falling back to default localhost API URL"
+          sed -i "s|%API_URL%|http://127.0.0.1:8000|g" ui/index.html ui/app.js || true
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v3

@@ -1,0 +1,61 @@
+name: Deploy Backend to Render
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  deploy-to-render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Trigger Render deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          if [ -z "${RENDER_API_KEY}" ] || [ -z "${RENDER_SERVICE_ID}" ]; then
+            echo "RENDER_API_KEY or RENDER_SERVICE_ID not set. Please add repository secrets and re-run.";
+            exit 1;
+          fi
+
+          echo "Triggering a new deploy for Render service: ${RENDER_SERVICE_ID}"
+          resp=$(curl -s -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+
+          echo "Deploy trigger response:"; echo "$resp"
+          echo "$resp" > /tmp/render_deploy_response.json
+
+          deploy_id=$(jq -r '.id // .deploy.id // empty' /tmp/render_deploy_response.json)
+          if [ -z "$deploy_id" ]; then
+            echo "Could not determine deploy id. The deploy may be queued — check the Render dashboard.";
+            exit 0;
+          fi
+
+          echo "Deploy id: $deploy_id"
+          # Poll for deploy status (simple loop)
+          for i in {1..30}; do
+            status=$(curl -s -H "Authorization: Bearer ${RENDER_API_KEY}" "https://api.render.com/v1/deploys/${deploy_id}" | jq -r '.status // empty')
+            echo "[$i] status=$status"
+            if [ "$status" = "succeeded" ] || [ "$status" = "live" ]; then
+              echo "Deploy succeeded.";
+              break;
+            elif [ "$status" = "failed" ] || [ "$status" = "cancelled" ]; then
+              echo "Deploy failed: $status";
+              exit 1;
+            fi
+            sleep 5
+          done
+
+          # Print service info
+          echo "Fetching service info..."
+          service=$(curl -s -H "Authorization: Bearer ${RENDER_API_KEY}" "https://api.render.com/v1/services/${RENDER_SERVICE_ID}")
+          echo "$service" | jq .
